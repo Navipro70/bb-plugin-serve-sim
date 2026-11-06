@@ -1,6 +1,6 @@
 ## What you get
 
-A **Simulator** button in every thread header opens a side-panel tab with a
+A **serve-sim** button in every thread header opens a side-panel tab with a
 live, interactive iOS Simulator. Click to tap, drag to swipe, type to send
 keys, and use serve-sim's own toolbar for home, screenshots, recording,
 rotation, the device grid, logs and Safari Web Inspector.

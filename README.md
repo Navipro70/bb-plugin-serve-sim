@@ -4,7 +4,7 @@ Stream a live, interactive iOS Simulator into the [BB](https://getbb.app)
 thread side panel, powered by Evan Bacon's
 [serve-sim](https://github.com/EvanBacon/serve-sim).
 
-- **Simulator** button in the thread header toggles a side-panel tab.
+- **serve-sim** button in the thread header toggles a side-panel tab.
 - Choose a device and press **Start simulator**; the plugin runs serve-sim in
   the background and embeds its full preview (H.264 stream, touch and keyboard
   input, home / screenshot / record / rotate, device grid, logs, Web Inspector).
