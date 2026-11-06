@@ -1,6 +1,6 @@
 // bb-plugin-serve-sim — frontend entry.
 //
-// Registers a "serve-sim" tab for the thread side panel plus a header button
+// Registers a "Simulator (serve-sim)" tab for the thread side panel plus a header button
 // that toggles it. The tab starts serve-sim through the server (server.ts) and
 // embeds serve-sim's own preview page, which streams the simulator and sends
 // touches/keys back over its same-origin WebSocket.
@@ -259,8 +259,8 @@ function SimulatorPanel(_props: { threadId: string; params: unknown }) {
 export default definePluginApp((app) => {
   app.slots.experimental_tab({
     ...TAB,
-    title: "serve-sim",
-    icon: "AppWindow",
+    title: "Simulator (serve-sim)",
+    icon: "Smartphone",
     tooltip: "iOS Simulator (serve-sim)",
     layout: "flush",
     component: SimulatorPanel,
@@ -268,15 +268,15 @@ export default definePluginApp((app) => {
 
   app.slots.experimental_threadAction({
     id: "open-simulator",
-    title: "serve-sim",
-    icon: "AppWindow",
+    title: "Simulator (serve-sim)",
+    icon: "Smartphone",
     group: experimental_THREAD_ACTION_GROUPS.open,
     placement: "header",
     item: ({ experimental_panel }) => ({
-      label: "serve-sim",
-      icon: "AppWindow",
+      label: "Simulator (serve-sim)",
+      icon: "Smartphone",
       run: () => {
-        experimental_panel.toggleTab({ tab: TAB, title: "serve-sim" });
+        experimental_panel.toggleTab({ tab: TAB, title: "Simulator (serve-sim)" });
       },
     }),
   });

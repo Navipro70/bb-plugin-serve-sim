@@ -7,7 +7,7 @@ description: Show the iOS Simulator live in the BB side panel and drive it while
 
 The Simulator (serve-sim) plugin runs [serve-sim](https://github.com/EvanBacon/serve-sim)
 on the Mac that hosts BB and shows its live, interactive preview in the thread's
-side panel. The user opens it with the **serve-sim** button in the thread header.
+side panel. The user opens it with the **Simulator (serve-sim)** button in the thread header.
 
 ## Control the preview
 
@@ -21,7 +21,7 @@ bb serve-sim logs              # recent serve-sim output, for diagnosing a faile
 
 Add `--json` for machine-readable output. Starting serve-sim boots the device if
 needed. The first start downloads serve-sim through npx and can take a minute.
-After `start`, tell the user to open the **serve-sim** button in the thread header
+After `start`, tell the user to open the **Simulator (serve-sim)** button in the thread header
 if the panel is not already showing.
 
 ## Drive the simulator
