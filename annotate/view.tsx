@@ -194,14 +194,18 @@ function Editor({
  * click opens a note. A note puts a pill in the thread's composer and a
  * numbered pin on the snapshot, and the panel goes back to the live stream.
  * `device` is the name or UDID serve-sim streams, when it was given one.
+ * With `frame`, the panel's rectangle of the live screen, Annotate draws
+ * the snapshot exactly over it and adds no toolbar of its own.
  */
 export function AnnotateView({
   threadId,
   device: streamed,
+  frame,
   onExit,
 }: {
   threadId: string;
   device: string | null;
+  frame?: { x: number; y: number; width: number; height: number } | null;
   onExit(): void;
 }) {
   const rpc = useRpc<typeof rpcContract>();
@@ -238,9 +242,12 @@ export function AnnotateView({
   const dropped = useRef(new Set<string>());
 
   /** The chosen simulator, else the one serve-sim streams, else the first booted one. */
+  const isStreamed = (item: Device) => streamed !== null && (item.udid === streamed || item.name === streamed);
+  // Over the live screen, the streamed device wins; otherwise the user's pick.
   const pick = (list: Device[]) =>
+    (frame ? list.find(isStreamed) : undefined) ??
     list.find((item) => item.udid === udid) ??
-    list.find((item) => streamed !== null && (item.udid === streamed || item.name === streamed)) ??
+    list.find(isStreamed) ??
     list[0];
   const device = devices ? (pick(devices) ?? null) : null;
 
@@ -339,9 +346,11 @@ export function AnnotateView({
 
   // Points on the device → pixels on the stage.
   const screen = snapshot?.screen ?? (snapshot && { width: snapshot.image.width, height: snapshot.image.height });
-  const scale = screen
-    ? Math.min(stage.width / screen.width, stage.height / screen.height) || 0
-    : 0;
+  const scale = !screen
+    ? 0
+    : frame
+      ? frame.width / screen.width
+      : Math.min(stage.width / screen.width, stage.height / screen.height) || 0;
   const shown = screen && { width: screen.width * scale, height: screen.height * scale };
   const toStage = (box: { x: number; y: number; width: number; height: number }) => ({
     x: box.x * scale,
@@ -442,71 +451,7 @@ export function AnnotateView({
   const editTarget =
     editing?.kind === "new" ? editing.path[editing.path.length - 1]?.frame : editNote?.element.frame;
 
-  return (
-    <div className="sa-panel">
-      <div className="sa-toolbar">
-        {devices && devices.length > 1 ? (
-          <select
-            className="sa-device"
-            value={device?.udid ?? ""}
-            onChange={(event) => {
-              setUdid(event.target.value);
-              localStorage.setItem(LAST_DEVICE, event.target.value);
-            }}
-            aria-label="Simulator"
-          >
-            {devices.map((item) => (
-              <option key={item.udid} value={item.udid}>
-                {item.name} · {item.runtime}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="sa-device-name">
-            {device ? `${device.name} · ${device.runtime}` : "No booted simulator"}
-          </span>
-        )}
-        <span className="sa-spacer" />
-        <button
-          type="button"
-          className="sa-icon-button"
-          aria-label="Take a new snapshot"
-          title="Take a new snapshot"
-          disabled={loading || picking}
-          onClick={() => void refresh()}
-        >
-          <Icon name="ArrowReloadHorizontal" className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className="sa-annotate"
-          aria-pressed={picking}
-          disabled={loading || (!picking && !device)}
-          title={
-            picking
-              ? "Click an element to add a note. ↑ selects its parent; Esc cancels."
-              : "Take a snapshot and pick an element"
-          }
-          onClick={toggle}
-        >
-          <AnnotateIcon />
-          <span>{picking ? "Cancel" : loading ? "Snapshot…" : "Annotate"}</span>
-        </button>
-        <button
-          type="button"
-          className="sa-annotate"
-          title="Back to the live simulator (Esc)"
-          onClick={onExit}
-        >
-          <Icon name="Play" className="size-3.5" />
-          <span>Live</span>
-        </button>
-      </div>
-      {(error || snapshot?.treeError) && (
-        <p className="sa-message">{error ?? snapshot?.treeError}</p>
-      )}
-      <div className="sa-stage" ref={stageRef}>
-        {snapshot && shown && (
+  const screenView = snapshot && shown ? (
           <div
             className={picking ? "sa-screen sa-picking" : "sa-screen"}
             style={{ width: shown.width, height: shown.height }}
@@ -585,7 +530,103 @@ export function AnnotateView({
               </>
             )}
           </div>
+  ) : null;
+  const notice = error ?? snapshot?.treeError ?? null;
+
+  if (frame) {
+    return (
+      <div className="sa-panel sa-anchored">
+        {screenView && (
+          <div
+            className="sa-anchor"
+            style={{
+              left: frame.x,
+              top: frame.y,
+              width: frame.width,
+              height: frame.height,
+              borderRadius: frame.width * 0.13,
+            }}
+          >
+            {screenView}
+          </div>
         )}
+        <p className="sa-float" style={{ left: frame.x + frame.width / 2, top: frame.y + 6 }}>
+          {notice ??
+            (loading
+              ? "Taking a snapshot…"
+              : picking
+                ? "Click an element · ↑ parent · Esc back to live"
+                : "Click a pin to edit it · Esc back to live")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sa-panel">
+      <div className="sa-toolbar">
+        {devices && devices.length > 1 ? (
+          <select
+            className="sa-device"
+            value={device?.udid ?? ""}
+            onChange={(event) => {
+              setUdid(event.target.value);
+              localStorage.setItem(LAST_DEVICE, event.target.value);
+            }}
+            aria-label="Simulator"
+          >
+            {devices.map((item) => (
+              <option key={item.udid} value={item.udid}>
+                {item.name} · {item.runtime}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="sa-device-name">
+            {device ? `${device.name} · ${device.runtime}` : "No booted simulator"}
+          </span>
+        )}
+        <span className="sa-spacer" />
+        <button
+          type="button"
+          className="sa-icon-button"
+          aria-label="Take a new snapshot"
+          title="Take a new snapshot"
+          disabled={loading || picking}
+          onClick={() => void refresh()}
+        >
+          <Icon name="ArrowReloadHorizontal" className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          className="sa-annotate"
+          aria-pressed={picking}
+          disabled={loading || (!picking && !device)}
+          title={
+            picking
+              ? "Click an element to add a note. ↑ selects its parent; Esc cancels."
+              : "Take a snapshot and pick an element"
+          }
+          onClick={toggle}
+        >
+          <AnnotateIcon />
+          <span>{picking ? "Cancel" : loading ? "Snapshot…" : "Annotate"}</span>
+        </button>
+        <button
+          type="button"
+          className="sa-annotate"
+          title="Back to the live simulator (Esc)"
+          onClick={onExit}
+        >
+          <Icon name="Play" className="size-3.5" />
+          <span>Live</span>
+        </button>
+      </div>
+      {(error || snapshot?.treeError) && (
+        <p className="sa-message">{error ?? snapshot?.treeError}</p>
+      )}
+      <div className="sa-stage" ref={stageRef}>
+        {screenView}
         {!snapshot && !error && <p className="sa-empty">{loading ? "Taking a snapshot…" : ""}</p>}
       </div>
       <p className="sa-footer">

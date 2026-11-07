@@ -222,3 +222,34 @@
   color: var(--muted-foreground);
   font-size: 11px;
 }
+
+/* Anchored over serve-sim's live screen: only the screen takes the pointer. */
+.sa-anchored {
+  background: transparent;
+  pointer-events: none;
+}
+.sa-anchor {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: auto;
+}
+.sa-anchor .sa-screen {
+  border-radius: 0;
+  box-shadow: none;
+}
+.sa-float {
+  position: absolute;
+  z-index: 1;
+  transform: translateX(-50%);
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #1c1c1ee6;
+  color: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}

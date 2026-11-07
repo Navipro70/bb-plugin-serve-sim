@@ -14,6 +14,7 @@ import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
 import { annotateMethods } from "./annotate/contract";
 import { registerAnnotate } from "./annotate/server";
+import { startProxy, type Proxy } from "./annotate/proxy";
 
 const execFileAsync = promisify(execFile);
 
@@ -25,6 +26,8 @@ const LOG_LINES = 200;
 const statusSchema = z.object({
   state: z.enum(["stopped", "starting", "running", "error"]),
   url: z.string().nullable(),
+  /** The preview through the plugin's proxy, with the Annotate button in it. */
+  proxyUrl: z.string().nullable(),
   device: z.string().nullable(),
   pid: z.number().nullable(),
   startedAt: z.string().nullable(),
@@ -156,6 +159,7 @@ export default async function plugin(bb: BbPluginApi) {
   let status: ServeSimStatus = {
     state: "stopped",
     url: null,
+    proxyUrl: null,
     device: null,
     pid: null,
     startedAt: null,
@@ -172,6 +176,33 @@ export default async function plugin(bb: BbPluginApi) {
       startWaiters = [];
       for (const resolve of waiters) resolve();
     }
+    syncProxy();
+  }
+
+  // The proxy follows serve-sim: one per running preview URL.
+  let proxy: Proxy | null = null;
+  let proxyFor: string | null = null;
+  let proxyQueue = Promise.resolve();
+  let disposed = false;
+  function syncProxy() {
+    proxyQueue = proxyQueue.then(async () => {
+      const want = !disposed && status.state === "running" ? status.url : null;
+      if (want === proxyFor) return;
+      const old = proxy;
+      proxy = null;
+      proxyFor = want;
+      if (old) await old.close().catch(() => undefined);
+      if (want) {
+        try {
+          proxy = await startProxy(want);
+          bb.log.info(`Annotate proxy for ${want} at ${proxy.url}`);
+        } catch (cause) {
+          bb.log.warn(`Annotate proxy failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      status = { ...status, proxyUrl: proxy?.url ?? null };
+      bb.realtime.publish(STATUS_CHANNEL, { state: status.state });
+    });
   }
 
   function pushLog(chunk: string) {
@@ -297,6 +328,14 @@ export default async function plugin(bb: BbPluginApi) {
       });
     });
   }
+
+  // A reload or update unloads this instance: stop what it started, so no
+  // preview or proxy outlives it.
+  bb.onDispose(async () => {
+    disposed = true;
+    await stop().catch(() => undefined);
+    await proxyQueue;
+  });
 
   bb.rpc.register(rpcContract, {
     status: async () => status,

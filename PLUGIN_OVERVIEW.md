@@ -12,8 +12,8 @@ panel toolbar ends it.
 
 ## Annotate
 
-Press **Annotate** in the panel toolbar or **⌥⌘A**: the panel freezes a
-snapshot of the simulator and you click the element you mean. A blue box shows
+Press **Annotate** in serve-sim's toolbar under the device or **⌥⌘A**: the
+live screen freezes in place and you click the element you mean. A blue box shows
 its type, text, and `testID`; **↑** selects its parent. Write a note, press
 **Enter**, and a pill such as `1 · Buy Pro` lands in the composer. Your agent
 gets the note, the element's `testID` (React Native / Expo), frame, and a

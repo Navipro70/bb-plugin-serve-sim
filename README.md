@@ -13,8 +13,9 @@ thread side panel, powered by Evan Bacon's
 
 ## Annotate
 
-Point at the part of your app you mean. **Annotate** in the panel toolbar (or
-**⌥⌘A** in a thread) freezes a snapshot of the simulator over the live stream
+Point at the part of your app you mean. The **Annotate** button in
+serve-sim's toolbar under the device (or **⌥⌘A** in a thread) freezes a
+snapshot exactly over the live screen, keeping the device frame and toolbar,
 and turns on a picker:
 
 1. Point at an element. A blue box and a label show its type, text,
@@ -94,6 +95,15 @@ over BB realtime. `app.tsx` registers the side-panel tab and header button and
 embeds serve-sim's preview page in an iframe. That page talks to serve-sim's
 same-origin WebSocket for input, so nothing is re-implemented. Reloading,
 disabling or removing the plugin stops serve-sim.
+
+The iframe loads the preview through a small local proxy the plugin starts
+next to serve-sim (`annotate/proxy.ts`). It passes every request, stream and
+WebSocket through unchanged, speaking for serve-sim's origin, and adds one
+script to the preview page (`annotate/inject.ts`). The script puts the
+Annotate button into serve-sim's toolbar and reports where the screen is
+drawn, so the panel can lay Annotate over exactly that rectangle. If a
+serve-sim update renames its toolbar, the button does not appear and Annotate
+falls back to a full-panel view; the preview itself keeps working.
 
 ## License
 
