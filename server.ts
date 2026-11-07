@@ -12,6 +12,8 @@ import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { annotateMethods } from "./annotate/contract";
+import { registerAnnotate } from "./annotate/server";
 
 const execFileAsync = promisify(execFile);
 
@@ -59,6 +61,7 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ lines: z.array(z.string()) }),
   },
+  ...annotateMethods,
 });
 
 /** Realtime channel the Simulator tab listens on. */
@@ -137,7 +140,17 @@ export default async function plugin(bb: BbPluginApi) {
       description: "Appended to the command, e.g. `--codec mjpeg` or `--theme dark`.",
       default: "",
     },
+    idbPath: {
+      type: "string",
+      label: "idb path (Annotate)",
+      description:
+        "Full path to the idb binary that Annotate uses to read the screen's elements. " +
+        "Leave empty to find it in ~/.local/bin, Homebrew, or your login shell's PATH.",
+      default: "",
+    },
   });
+
+  const annotate = registerAnnotate(bb, (await settings.get()).idbPath ?? "");
 
   let child: ChildProcess | null = null;
   let status: ServeSimStatus = {
@@ -291,6 +304,7 @@ export default async function plugin(bb: BbPluginApi) {
     start: async ({ device }) => start(device, false),
     stop: async () => stop(),
     logs: async () => ({ lines: [...logLines] }),
+    ...annotate,
   });
 
   // ── CLI ─────────────────────────────────────────────────────────────────

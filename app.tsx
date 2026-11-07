@@ -16,9 +16,16 @@ import type { rpcContract, ServeSimStatus, SimDevice } from "./server";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { AnnotateIcon, AnnotateView } from "./annotate/view";
 
 const STATUS_CHANNEL = "serve-sim-status";
 const TAB = { id: "simulator", context: { kind: "thread" }, availability: "action" } as const;
+const TITLE = "Simulator (serve-sim)";
+
+/** Mounted panels by thread, so the Annotate command reaches the one on screen. */
+const panels = new Map<string, { annotate(): void }>();
+/** Threads whose panel should open in Annotate mode when it mounts. */
+const annotateOnMount = new Set<string>();
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -179,7 +186,7 @@ function StartScreen({
   );
 }
 
-function SimulatorPanel(_props: { threadId: string; params: unknown }) {
+function LivePanel({ onAnnotate }: { onAnnotate(): void }) {
   const { rpc, status, error, setError, refetch } = useServeSim();
   const [pending, setPending] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
@@ -216,6 +223,16 @@ function SimulatorPanel(_props: { threadId: string; params: unknown }) {
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2 text-xs text-muted-foreground">
         <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <span className="min-w-0 flex-1 truncate font-mono">{url.replace(/^http:\/\//, "")}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs"
+          aria-label="Annotate: pick an element and send a note to the agent (⌥⌘A)"
+          onClick={onAnnotate}
+        >
+          <AnnotateIcon />
+          Annotate
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -256,6 +273,29 @@ function SimulatorPanel(_props: { threadId: string; params: unknown }) {
   );
 }
 
+/**
+ * The Simulator tab: the live stream, with Annotate mode over it. The stream
+ * stays mounted under Annotate, so going back to live is instant.
+ */
+function SimulatorPanel({ threadId }: { threadId: string; params: unknown }) {
+  const { status } = useServeSim();
+  const [annotating, setAnnotating] = useState(() => annotateOnMount.delete(threadId));
+  const exit = useCallback(() => setAnnotating(false), []);
+  useEffect(() => {
+    const control = { annotate: () => setAnnotating(true) };
+    panels.set(threadId, control);
+    return () => {
+      if (panels.get(threadId) === control) panels.delete(threadId);
+    };
+  }, [threadId]);
+  return (
+    <div className="relative flex h-full min-h-0 flex-1 flex-col">
+      <LivePanel onAnnotate={() => setAnnotating(true)} />
+      {annotating ? <AnnotateView threadId={threadId} device={status?.device ?? null} onExit={exit} /> : null}
+    </div>
+  );
+}
+
 export default definePluginApp((app) => {
   app.slots.experimental_tab({
     ...TAB,
@@ -276,8 +316,22 @@ export default definePluginApp((app) => {
       label: "Simulator (serve-sim)",
       icon: "Smartphone",
       run: () => {
-        experimental_panel.toggleTab({ tab: TAB, title: "Simulator (serve-sim)" });
+        experimental_panel.toggleTab({ tab: TAB, title: TITLE });
       },
     }),
+  });
+
+  app.commands.register({
+    id: "annotate",
+    title: "Simulator (serve-sim): Annotate an element",
+    defaultShortcut: { key: "a", mod: true, alt: true },
+    isAvailable: ({ threadId }) => threadId !== null,
+    run: ({ threadId, experimental_panel }) => {
+      if (!threadId) return;
+      const panel = panels.get(threadId);
+      if (!panel) annotateOnMount.add(threadId);
+      experimental_panel.openTab({ tab: TAB, title: TITLE });
+      panel?.annotate();
+    },
   });
 });
