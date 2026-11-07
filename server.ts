@@ -12,6 +12,9 @@ import { spawn, execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { annotateMethods } from "./annotate/contract";
+import { registerAnnotate } from "./annotate/server";
+import { startProxy, type Proxy } from "./annotate/proxy";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,6 +26,8 @@ const LOG_LINES = 200;
 const statusSchema = z.object({
   state: z.enum(["stopped", "starting", "running", "error"]),
   url: z.string().nullable(),
+  /** The preview through the plugin's proxy, with the Annotate button in it. */
+  proxyUrl: z.string().nullable(),
   device: z.string().nullable(),
   pid: z.number().nullable(),
   startedAt: z.string().nullable(),
@@ -59,6 +64,7 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ lines: z.array(z.string()) }),
   },
+  ...annotateMethods,
 });
 
 /** Realtime channel the Simulator tab listens on. */
@@ -137,12 +143,23 @@ export default async function plugin(bb: BbPluginApi) {
       description: "Appended to the command, e.g. `--codec mjpeg` or `--theme dark`.",
       default: "",
     },
+    idbPath: {
+      type: "string",
+      label: "idb path (Annotate)",
+      description:
+        "Full path to the idb binary that Annotate uses to read the screen's elements. " +
+        "Leave empty to find it in ~/.local/bin, Homebrew, or your login shell's PATH.",
+      default: "",
+    },
   });
+
+  const annotate = registerAnnotate(bb, (await settings.get()).idbPath ?? "");
 
   let child: ChildProcess | null = null;
   let status: ServeSimStatus = {
     state: "stopped",
     url: null,
+    proxyUrl: null,
     device: null,
     pid: null,
     startedAt: null,
@@ -159,6 +176,33 @@ export default async function plugin(bb: BbPluginApi) {
       startWaiters = [];
       for (const resolve of waiters) resolve();
     }
+    syncProxy();
+  }
+
+  // The proxy follows serve-sim: one per running preview URL.
+  let proxy: Proxy | null = null;
+  let proxyFor: string | null = null;
+  let proxyQueue = Promise.resolve();
+  let disposed = false;
+  function syncProxy() {
+    proxyQueue = proxyQueue.then(async () => {
+      const want = !disposed && status.state === "running" ? status.url : null;
+      if (want === proxyFor) return;
+      const old = proxy;
+      proxy = null;
+      proxyFor = want;
+      if (old) await old.close().catch(() => undefined);
+      if (want) {
+        try {
+          proxy = await startProxy(want);
+          bb.log.info(`Annotate proxy for ${want} at ${proxy.url}`);
+        } catch (cause) {
+          bb.log.warn(`Annotate proxy failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+        }
+      }
+      status = { ...status, proxyUrl: proxy?.url ?? null };
+      bb.realtime.publish(STATUS_CHANNEL, { state: status.state });
+    });
   }
 
   function pushLog(chunk: string) {
@@ -285,12 +329,21 @@ export default async function plugin(bb: BbPluginApi) {
     });
   }
 
+  // A reload or update unloads this instance: stop what it started, so no
+  // preview or proxy outlives it.
+  bb.onDispose(async () => {
+    disposed = true;
+    await stop().catch(() => undefined);
+    await proxyQueue;
+  });
+
   bb.rpc.register(rpcContract, {
     status: async () => status,
     devices: async () => listDevices(),
     start: async ({ device }) => start(device, false),
     stop: async () => stop(),
     logs: async () => ({ lines: [...logLines] }),
+    ...annotate,
   });
 
   // ── CLI ─────────────────────────────────────────────────────────────────

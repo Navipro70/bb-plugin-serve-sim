@@ -4,7 +4,8 @@
 // that toggles it. The tab starts serve-sim through the server (server.ts) and
 // embeds serve-sim's own preview page, which streams the simulator and sends
 // touches/keys back over its same-origin WebSocket.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import type { ReactNode } from "react";
 import {
   definePluginApp,
@@ -16,9 +17,17 @@ import type { rpcContract, ServeSimStatus, SimDevice } from "./server";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
+import { AnnotateIcon, AnnotateView } from "./annotate/view";
+import { PAGE_SOURCE, PARENT_SOURCE } from "./annotate/inject";
 
 const STATUS_CHANNEL = "serve-sim-status";
 const TAB = { id: "simulator", context: { kind: "thread" }, availability: "action" } as const;
+const TITLE = "Simulator (serve-sim)";
+
+/** Mounted panels by thread, so the Annotate command reaches the one on screen. */
+const panels = new Map<string, { annotate(): void }>();
+/** Threads whose panel should open in Annotate mode when it mounts. */
+const annotateOnMount = new Set<string>();
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -179,7 +188,13 @@ function StartScreen({
   );
 }
 
-function SimulatorPanel(_props: { threadId: string; params: unknown }) {
+function LivePanel({
+  onAnnotate,
+  frameRef,
+}: {
+  onAnnotate(): void;
+  frameRef: RefObject<HTMLIFrameElement | null>;
+}) {
   const { rpc, status, error, setError, refetch } = useServeSim();
   const [pending, setPending] = useState(false);
   const [frameKey, setFrameKey] = useState(0);
@@ -210,12 +225,23 @@ function SimulatorPanel(_props: { threadId: string; params: unknown }) {
     );
   }
 
-  const url = status.url;
+  // Through the proxy the page has an Annotate button in its own toolbar.
+  const url = status.proxyUrl ?? status.url;
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-border px-2 text-xs text-muted-foreground">
         <span className="size-2 shrink-0 rounded-full bg-emerald-500" aria-hidden />
         <span className="min-w-0 flex-1 truncate font-mono">{url.replace(/^http:\/\//, "")}</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-xs"
+          aria-label="Annotate: pick an element and send a note to the agent (⌥⌘A)"
+          onClick={onAnnotate}
+        >
+          <AnnotateIcon />
+          Annotate
+        </Button>
         <Button
           variant="ghost"
           size="icon"
@@ -246,12 +272,86 @@ function SimulatorPanel(_props: { threadId: string; params: unknown }) {
         </Button>
       </div>
       <iframe
+        ref={frameRef}
         key={frameKey}
         src={url}
         title="iOS Simulator"
         className="min-h-0 w-full flex-1 border-0 bg-background"
         allow="clipboard-read; clipboard-write; fullscreen; autoplay"
       />
+    </div>
+  );
+}
+
+/**
+ * The Simulator tab: the live stream, with Annotate mode over it. The stream
+ * stays mounted under Annotate, so going back to live is instant.
+ */
+function SimulatorPanel({ threadId }: { threadId: string; params: unknown }) {
+  const { status } = useServeSim();
+  const [annotating, setAnnotating] = useState(() => annotateOnMount.delete(threadId));
+  const exit = useCallback(() => setAnnotating(false), []);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  // Where the page draws the live screen, in the page and then in the panel.
+  const [inner, setInner] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [pageUdid, setPageUdid] = useState<string | null>(null);
+  const [frame, setFrame] = useState<typeof inner>(null);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { source?: string; type?: string; rect?: typeof inner; udid?: string | null };
+      if (!data || data.source !== PAGE_SOURCE || event.source !== frameRef.current?.contentWindow) return;
+      if (data.type === "toggle") setAnnotating((on) => !on);
+      else if (data.type === "exit") setAnnotating(false);
+      else if (data.type === "screen") {
+        setInner(data.rect ?? null);
+        setPageUdid(data.udid ?? null);
+      }
+    };
+    addEventListener("message", onMessage);
+    return () => removeEventListener("message", onMessage);
+  }, []);
+
+  // Tell the page whether Annotate is on, so its button shows it.
+  useEffect(() => {
+    const post = () =>
+      frameRef.current?.contentWindow?.postMessage({ source: PARENT_SOURCE, type: "state", active: annotating }, "*");
+    post();
+    const timer = setInterval(post, 1000);
+    return () => clearInterval(timer);
+  }, [annotating]);
+
+  // The page's rectangle, moved by the iframe's place in the panel.
+  useEffect(() => {
+    const measure = () => {
+      const root = rootRef.current?.getBoundingClientRect();
+      const box = frameRef.current?.getBoundingClientRect();
+      if (!inner || !root || !box) return setFrame(null);
+      setFrame({ x: box.left - root.left + inner.x, y: box.top - root.top + inner.y, width: inner.width, height: inner.height });
+    };
+    measure();
+    addEventListener("resize", measure);
+    return () => removeEventListener("resize", measure);
+  }, [inner, annotating]);
+  useEffect(() => {
+    const control = { annotate: () => setAnnotating(true) };
+    panels.set(threadId, control);
+    return () => {
+      if (panels.get(threadId) === control) panels.delete(threadId);
+    };
+  }, [threadId]);
+  return (
+    <div ref={rootRef} className="relative flex h-full min-h-0 flex-1 flex-col">
+      <LivePanel onAnnotate={() => setAnnotating((on) => !on)} frameRef={frameRef} />
+      {annotating ? (
+        <AnnotateView
+          threadId={threadId}
+          device={pageUdid ?? status?.device ?? null}
+          frame={status?.proxyUrl ? frame : null}
+          onExit={exit}
+        />
+      ) : null}
     </div>
   );
 }
@@ -276,8 +376,22 @@ export default definePluginApp((app) => {
       label: "Simulator (serve-sim)",
       icon: "Smartphone",
       run: () => {
-        experimental_panel.toggleTab({ tab: TAB, title: "Simulator (serve-sim)" });
+        experimental_panel.toggleTab({ tab: TAB, title: TITLE });
       },
     }),
+  });
+
+  app.commands.register({
+    id: "annotate",
+    title: "Simulator (serve-sim): Annotate an element",
+    defaultShortcut: { key: "a", mod: true, alt: true },
+    isAvailable: ({ threadId }) => threadId !== null,
+    run: ({ threadId, experimental_panel }) => {
+      if (!threadId) return;
+      const panel = panels.get(threadId);
+      if (!panel) annotateOnMount.add(threadId);
+      experimental_panel.openTab({ tab: TAB, title: TITLE });
+      panel?.annotate();
+    },
   });
 });
