@@ -1,5 +1,16 @@
 # Simulator (serve-sim) for BB
 
+> **Moved.** This plugin now lives in
+> [Navipro70/bb-plugins](https://github.com/Navipro70/bb-plugins/tree/main/serve-sim),
+> with the history of this repository. Install it from there:
+>
+> ```sh
+> bb marketplace add git:https://github.com/Navipro70/bb-plugins.git@main
+> bb plugin install serve-sim@navipro-plugins
+> ```
+>
+> This repository gets no more updates.
+
 Stream a live, interactive iOS Simulator into the [BB](https://getbb.app)
 thread side panel, powered by Evan Bacon's
 [serve-sim](https://github.com/EvanBacon/serve-sim).
